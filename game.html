@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>3D Lane Car Game - Score System</title>
+  <style>
+    body { margin: 0; background: #222; overflow: hidden;}
+    canvas { display: block; background: #87ceeb; }
+    #info {
+      position: absolute;
+      top: 10px; left: 10px;
+      color: #222; font-family: Arial, sans-serif;
+      font-size: 18px; z-index: 2;
+      pointer-events: none; user-select: none;
+      text-shadow: 1px 1px 3px #fff,0 0 6px #87ceeb;
+    }
+    #score {
+      position: absolute; top: 10px; right: 30px;
+      color: gold; font-family: Arial, sans-serif;
+      font-size: 28px; font-weight: bold;
+      z-index: 10; pointer-events: none; user-select: none;
+      text-shadow: 2px 2px 4px #222, 0 0 6px gold;
+    }
+    #gameOver {
+      display: none; position: fixed;
+      top: 0; left: 0; width: 100vw; height: 100vh;
+      background: rgba(0,0,0,0.85); color: #fff;
+      font-family: Arial, sans-serif; font-size: 48px;
+      text-align: center; z-index: 100;
+      justify-content: center; align-items: center; flex-direction: column;
+    }
+    #gameOver button { font-size: 24px; margin-top: 24px; padding: 12px 32px; border: none; background: #0066cc; color: #fff; border-radius: 8px; cursor: pointer;}
+    #gameOver button:hover { background: #004488;}
+    .touch-control { position: fixed; bottom: 10vw; z-index: 10; opacity: 0.22; touch-action: manipulation; user-select: none; transition: opacity 0.2s;}
+    #touch-left { left: 0; width: 36vw; height: 40vh; background: #ff3333; border-radius: 0 50vw 50vw 0/0 45vh 45vh 0;}
+    #touch-right { right: 0; width: 36vw; height: 40vh; background: #3498db; border-radius: 50vw 0 0 50vw/45vh 0 0 45vh;}
+    #touch-jump { left: 36vw; width: 28vw; height: 20vh; bottom: 1vh; background: #ffe066; border-radius: 25vw;}
+    .touch-control:active, .touch-control.touching { opacity: 0.7;}
+    @media (max-width: 768px) { #info {font-size:12px;} }
+  </style>
+</head>
+<body>
+  <div id="score">Score: 0</div>
+  <div id="info">
+    Use Left/Right arrows or touch to change lane.<br>
+    Press SPACEBAR/tap Jump (hold for more)!<br>
+    Dodge (+1) or jump over (+10) blue cars!
+  </div>
+  <div id="gameOver">
+    <div style="margin-top:25vh;">Game Over</div>
+    <div id="finalScore"></div>
+    <button onclick="restartGame()">Restart</button>
+  </div>
+  <div id="touch-left" class="touch-control"></div>
+  <div id="touch-right" class="touch-control"></div>
+  <div id="touch-jump" class="touch-control"></div>
+  <script src="https://unpkg.com/three@0.134.0/build/three.min.js"></script>
+  <script>
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87ceeb);
+
+    function createSun() {
+      const sunGeometry = new THREE.SphereGeometry(2, 36, 36);
+      const sunMaterial = new THREE.MeshBasicMaterial({
+        color: 0xffeb3b, emissive: 0xffeb3b, emissiveIntensity: 2
+      });
+      const sunMesh = new THREE.Mesh(sunGeometry, sunMaterial);
+      sunMesh.position.set(-8, 15, -20);
+      scene.add(sunMesh);
+    }
+    createSun();
+
+    function createClouds() {
+      const cloudMaterial = new THREE.MeshLambertMaterial({color: 0xffffff});
+      for (let i = 0; i < 25; i++) {
+        const cloud = new THREE.Group();
+        const numPuffs = 3 + Math.floor(Math.random() * 3);
+        for (let j = 0; j < numPuffs; j++) {
+          const puffGeometry = new THREE.SphereGeometry(0.5 + Math.random() * 0.4, 16, 16);
+          const puff = new THREE.Mesh(puffGeometry, cloudMaterial);
+          puff.position.set((Math.random()-0.5)*1.5,(Math.random()-0.5)*0.6,(Math.random()-0.5)*1.5);
+          cloud.add(puff);
+        }
+        cloud.position.set((Math.random()-0.5)*40,8+Math.random()*8,-50+Math.random()*30);
+        scene.add(cloud);
+      }
+    }
+    createClouds();
+
+    const sunLight = new THREE.DirectionalLight(0xffeb3b, 1.4);
+    sunLight.position.set(-8, 15, -20);
+    scene.add(sunLight);
+
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setClearColor(0x87ceeb);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const roadGeometry = new THREE.BoxGeometry(6, 0.2, 60);
+    const roadMaterial = new THREE.MeshLambertMaterial({color: 0x333333});
+    const road = new THREE.Mesh(roadGeometry, roadMaterial);
+    road.position.y = 0;
+    road.position.z = -20;
+    scene.add(road);
+
+    const lanePositions = [-2, 0, 2];
+
+    function addLaneLines() {
+      const laneX = [-1, 1], lineLength=2.5,lineWidth=0.1,lineHeight=0.05;
+      const zStart=-49,zEnd=10,dashGap=2.1;
+      for (const x of laneX) {
+        for (let z=zStart;z<zEnd;z+=dashGap) {
+          const geometry=new THREE.BoxGeometry(lineWidth,lineHeight,lineLength);
+          const material=new THREE.MeshLambertMaterial({color: 0xffffff});
+          const dash=new THREE.Mesh(geometry,material);
+          dash.position.set(x,0.11,z+lineLength/2);
+          scene.add(dash);
+        }
+      }
+    }
+    addLaneLines();
+
+    // --- Buildings with lights ---
+    function createBuildingsWithLights() {
+      const buildingColors = [0x7f8c8d,0x95a5a6,0xc0392b,0x3498db,0x27ae60,0xf1c40f,0xe67e22];
+      const zStart = -49, zEnd = 10;
+      for (let side of [-1,1]) {
+        for (let i=0;i<26;i++) {
+          const width=2+Math.random()*2, height=5+Math.random()*10, depth=2+Math.random();
+          const geometry=new THREE.BoxGeometry(width,height,depth);
+          const color=buildingColors[Math.floor(Math.random()*buildingColors.length)];
+          const material=new THREE.MeshLambertMaterial({color:color});
+          const building=new THREE.Mesh(geometry,material);
+          building.position.x=side*(4+Math.random());
+          building.position.y=height/2+0.1;
+          building.position.z=zStart+(i*((zEnd-zStart)/26));
+          scene.add(building);
+
+          // Windows (yellow lights)
+          const windowRows=Math.floor(height/1.5),windowCols=Math.floor(width/0.35);
+          for (let r=0;r<windowRows;r++) {
+            for (let c=0;c<windowCols;c++) {
+              if (Math.random()>0.55) continue;
+              const winGeometry=new THREE.BoxGeometry(0.25,0.3,0.02);
+              const winMaterial=new THREE.MeshLambertMaterial({
+                color:0xffe066, emissive:0xffe066, emissiveIntensity:1.5
+              });
+              const win=new THREE.Mesh(winGeometry,winMaterial);
+              win.position.x = building.position.x + (c*0.35) - width/2 + 0.2;
+              win.position.y = building.position.y - height/2 + 0.2 + r*1.2;
+              win.position.z = building.position.z + depth/2 + 0.08;
+              scene.add(win);
+            }
+          }
+        }
+      }
+    }
+    createBuildingsWithLights();
+
+    // --- STREETLIGHTS LEFT/RIGHT LANE ---
+    function createSideLaneStreetLights() {
+      const lampCount = 15; const zStart = -45, zEnd = 5;
+      const leftX = -2.9, rightX = 2.9;
+      for (let i=0;i<lampCount;i++) {
+        const z = zStart + (i*(zEnd-zStart)/(lampCount-1));
+        // Left
+        const poleGeom = new THREE.CylinderGeometry(0.09,0.11,2.05,12);
+        const poleMat = new THREE.MeshLambertMaterial({color:0x333333});
+        const pole = new THREE.Mesh(poleGeom, poleMat); pole.position.set(leftX,1.03,z); scene.add(pole);
+        const lampGeom = new THREE.SphereGeometry(0.25, 15, 15);
+        const lampMat = new THREE.MeshLambertMaterial({color:0xffe066,emissive:0xffe066,emissiveIntensity:2.5});
+        const lamp = new THREE.Mesh(lampGeom, lampMat); lamp.position.set(leftX,2.1,z); scene.add(lamp);
+
+        // Right
+        const pole2 = new THREE.Mesh(poleGeom, poleMat); pole2.position.set(rightX,1.03,z); scene.add(pole2);
+        const lamp2 = new THREE.Mesh(lampGeom, lampMat); lamp2.position.set(rightX,2.1,z); scene.add(lamp2);
+      }
+    }
+    createSideLaneStreetLights();
+
+    function createPlayerCar() {
+      const group = new THREE.Group();
+      const bodyGeometry = new THREE.BoxGeometry(1.2, 0.5, 2.2), bodyMaterial = new THREE.MeshLambertMaterial({color: 0xff3333});
+      const bodyMesh = new THREE.Mesh(bodyGeometry, bodyMaterial); bodyMesh.position.y = 0.5; group.add(bodyMesh);
+      const glassGeometry = new THREE.BoxGeometry(0.9, 0.25, 0.7), glassMaterial = new THREE.MeshLambertMaterial({color: 0x8ecae6, transparent: true, opacity: 0.8});
+      const glassMesh = new THREE.Mesh(glassGeometry, glassMaterial); glassMesh.position.set(0, 0.65, 0.5); group.add(glassMesh);
+      const spoilerGeometry = new THREE.BoxGeometry(1.0,0.08,0.25),spoilerMaterial = new THREE.MeshLambertMaterial({color:0x111111});
+      const spoilerMesh = new THREE.Mesh(spoilerGeometry, spoilerMaterial); spoilerMesh.position.set(0,0.73,-1.1); group.add(spoilerMesh);
+      const bumperGeometry = new THREE.BoxGeometry(1.05,0.18,0.2), bumperMaterial = new THREE.MeshLambertMaterial({color:0x444444});
+      const bumperMesh = new THREE.Mesh(bumperGeometry, bumperMaterial); bumperMesh.position.set(0,0.41,-1.19); group.add(bumperMesh);
+      const wheelGeometry = new THREE.CylinderGeometry(0.22,0.22,0.28,24), wheelMaterial = new THREE.MeshLambertMaterial({color:0x222222});
+      [[0.47,0.22,0.78],[-0.47,0.22,0.78],[0.47,0.22,-0.78],[-0.47,0.22,-0.78]].forEach(([x,y,z])=>{
+        const wheelMesh=new THREE.Mesh(wheelGeometry, wheelMaterial); wheelMesh.rotation.z=Math.PI/2; wheelMesh.position.set(x,y,z); group.add(wheelMesh);
+      });
+      const lightGeometry=new THREE.BoxGeometry(0.10,0.10,0.10),lightMaterial=new THREE.MeshLambertMaterial({color:0xffffaa});
+      for(let i=-1;i<=1;i+=2){
+        const lightMesh=new THREE.Mesh(lightGeometry,lightMaterial);
+        lightMesh.position.set(0.35*i,0.48,1.11); group.add(lightMesh);
+      }
+      group.position.set(0,0,4);
+      return group;
+    }
+    const playerCar = createPlayerCar();
+    scene.add(playerCar);
+
+    let playerLane = 1, isJumping = false, jumpVelocity = 0, gravity = -0.015, jumpPower = 0.35, groundY = 0, spacebarPressed = false;
+    const npcCars = [], npcCount = 5, npcState = [];
+
+    for (let i = 0; i < npcCount; i++) {
+      const npcGeometry = new THREE.BoxGeometry(1, 0.5, 2);
+      const npcMaterial = new THREE.MeshLambertMaterial({color: 0x0000ff});
+      const npcCar = new THREE.Mesh(npcGeometry, npcMaterial);
+      npcCar.position.x = lanePositions[Math.floor(Math.random() * lanePositions.length)];
+      npcCar.position.y = 0.5;
+      npcCar.position.z = Math.random() * -50;
+      scene.add(npcCar);
+      npcCars.push(npcCar);
+      npcState.push({ passed: false, jumped: false, lastLane: npcCar.position.x });
+    }
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+    scene.add(ambientLight);
+
+    camera.position.set(0, 7, 15);
+    camera.lookAt(new THREE.Vector3(0, 0, 0));
+
+    let gameIsOver = false, score = 0;
+    function updateScore() { document.getElementById('score').textContent = 'Score: ' + score; }
+
+    document.addEventListener('keydown', function(event) {
+      if (gameIsOver) return;
+      if (event.key === "ArrowLeft" && playerLane > 0) { playerLane--; playerCar.position.x = lanePositions[playerLane]; }
+      if (event.key === "ArrowRight" && playerLane < lanePositions.length - 1) { playerLane++; playerCar.position.x = lanePositions[playerLane]; }
+      if (event.code === "Space") { spacebarPressed = true; if (!isJumping && playerCar.position.y <= groundY + 0.1) { isJumping = true; jumpVelocity = jumpPower; } }
+    });
+    document.addEventListener('keyup', function(event) { if (event.code === "Space") { spacebarPressed = false;} });
+
+    function addTouchHandler(sel, onStart, onEnd) {
+      const el = document.querySelector(sel);
+      let touching = false;
+      el.addEventListener('touchstart', function(e) { e.preventDefault(); touching = true; el.classList.add('touching'); if(onStart) onStart(); },  {passive: false});
+      el.addEventListener('touchend', function(e) { e.preventDefault(); touching = false; el.classList.remove('touching'); if(onEnd) onEnd(); }, {passive: false});
+      el.addEventListener('mousedown', function(e) { e.preventDefault(); touching = true; el.classList.add('touching'); if(onStart) onStart(); }, {passive: false});
+      el.addEventListener('mouseup', function(e) { e.preventDefault(); touching = false; el.classList.remove('touching'); if(onEnd) onEnd(); }, {passive: false});
+    }
+    addTouchHandler('#touch-left', function(){
+      if(gameIsOver) return; if(playerLane>0){playerLane--;playerCar.position.x=lanePositions[playerLane];}
+    });
+    addTouchHandler('#touch-right', function(){
+      if(gameIsOver) return; if(playerLane<lanePositions.length-1){playerLane++;playerCar.position.x=lanePositions[playerLane];}
+    });
+    addTouchHandler('#touch-jump', function(){
+      if(gameIsOver)return; spacebarPressed=true; if(!isJumping && playerCar.position.y<=groundY+0.1){isJumping=true;jumpVelocity=jumpPower;}
+    },function(){spacebarPressed=false;});
+
+    function showGameOver() {
+      document.getElementById("gameOver").style.display = "flex";
+      document.getElementById("finalScore").textContent = "Final Score: "+score;
+      gameIsOver = true;
+    }
+    window.restartGame = function() { window.location.reload(); };
+
+    // SCORE LOGIC
+    function animate() {
+      if (!gameIsOver) requestAnimationFrame(animate);
+
+      // Jump physics
+      if (isJumping || playerCar.position.y > groundY) {
+        jumpVelocity += gravity;
+        playerCar.position.y += jumpVelocity;
+        if (playerCar.position.y <= groundY) {
+          playerCar.position.y = groundY; jumpVelocity = 0; isJumping = false;
+        }
+      }
+      if(spacebarPressed && !isJumping && playerCar.position.y<=groundY+0.1){isJumping=true;jumpVelocity=jumpPower;}
+
+      npcCars.forEach((npcCar, idx)=>{
+        npcCar.position.z+=0.3;
+        const state = npcState[idx];
+
+        // Check for dodge/jump scoring before reset
+        if (npcCar.position.z > 4 && !state.passed) {
+          // Check dodge: same lane, player isn't jumping
+          if (npcCar.position.x === playerCar.position.x && playerCar.position.y < 0.25) {
+            score += 1; updateScore(); state.passed=true;
+          }
+          // Check jump: same lane, player above car as it passes
+          if (npcCar.position.x === playerCar.position.x && playerCar.position.y > 0.85 && !state.jumped) {
+            score += 10; updateScore(); state.jumped=true;
+          }
+        }
+        // Reset car after passing
+        if (npcCar.position.z > 10) {
+          npcCar.position.z = Math.random()*-50-20;
+          npcCar.position.x = lanePositions[Math.floor(Math.random()*lanePositions.length)];
+          state.passed=false; state.jumped=false; state.lastLane = npcCar.position.x;
+        }
+        // Collision detection
+        if (!gameIsOver) {
+          const playerBox = new THREE.Box3().setFromObject(playerCar);
+          const npcBox = new THREE.Box3().setFromObject(npcCar);
+          if (playerBox.intersectsBox(npcBox)) showGameOver();
+        }
+      });
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+  </script>
+</body>
+</html>
